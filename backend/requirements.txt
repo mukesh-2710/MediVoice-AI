@@ -1,0 +1,13 @@
+# Web/API
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.8,<3.0
+tzdata>=2024.1
+# Voice: Pipecat with ElevenLabs (STT+TTS), Google Gemini, Silero VAD and the built-in WebRTC transport.
+# Pipecat changes quickly. After your first successful install run `pip freeze > requirements.lock`
+# and commit it so the exact working set is pinned. See README -> "Pinning".
+pipecat-ai[elevenlabs,google,silero,webrtc]>=0.0.90,<0.1
+# Tests
+pytest>=8.0,<9.0
+pytest-asyncio>=0.23,<2.0
+httpx>=0.27,<1.0
