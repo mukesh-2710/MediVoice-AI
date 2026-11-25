@@ -1,140 +1,250 @@
-# MediVoice AI: voice doctor-appointment assistant
+# MediVoice AI
 
-A caller speaks to an AI receptionist in the browser. It checks a doctor's availability, books and cancels
-appointments, and every action shows up live on a dashboard. Built for the *SDE Intern Round 1* assignment.
+MediVoice AI is a browser-based voice receptionist and clinic dashboard. Callers can ask about doctor availability, confirm a phone number, and book or cancel appointments by speaking. The dashboard reads from the same SQLite database and updates as call events arrive.
 
-| Part | Technology |
+> **Demo data:** The included doctors, schedules, fees, holidays, and appointments are seeded sample clinic data. They are not connected to a real clinic scheduling system.
+
+## Features
+
+### Voice receptionist
+
+- Browser microphone and speaker audio over WebRTC, using Pipecat's SmallWebRTC transport.
+- ElevenLabs speech-to-text and text-to-speech, Google Gemini tool calling, and Silero voice activity detection.
+- Live caller/agent transcript, caller and agent speaking indicators, mute and hang-up controls, and an audio activity waveform.
+- Browser playback-block detection with an **Enable audio** retry prompt.
+- Natural-language date, doctor, speciality, and time requests, including requests for the earliest available appointment.
+- Server-side availability lookup. The assistant is instructed to use the live schedule data rather than invent or recall slots.
+- Caller phone-number read-back and explicit spoken confirmation before the number is treated as verified.
+- Two-step appointment booking and cancellation: the server proposes the action, checks the caller's spoken confirmation, then executes it.
+- Silence prompt and hang-up handling, call lifecycle tracking, and call-scoped live transcript and speaking events.
+
+### Clinic dashboard
+
+The app shell provides eight pages:
+
+| Page | Features |
 |---|---|
-| Voice pipeline | **Pipecat** (Python), SmallWebRTC audio transport |
-| Speech-to-text / text-to-speech | **ElevenLabs** |
-| LLM | **Google Gemini** (`gemini-3.8-flash` by default) with function calling |
-| VAD | Silero (bonus) |
-| Backend / API | FastAPI, SQLite, WebSocket events |
-| Frontend | React + Vite, hand-written CSS (no UI kit) |
+| **Overview** | Appointment and call totals, free slots, next-seven-day visit chart, today's schedule, activity feed, status split, and speciality chart. |
+| **Voice Assistant** | Start a call, check voice setup status, view the live transcript, and see suggested phrases. |
+| **Doctors** | Search and filter doctors by name or speciality; inspect experience, fees, working days, hours, and upcoming booked/free slots. |
+| **Availability** | Browse a 14-day date strip, filter by speciality, and compare available and booked slots; clinic holidays and empty schedules are shown. |
+| **Appointments** | Search by phone, doctor, speciality, or reference; filter by status and date range; export matching statuses to CSV. |
+| **Call History** | Review call status, duration, end reason, and transcript; download a transcript. |
+| **Activity** | Browse recent booking, cancellation, and call events. |
+| **Settings** | Check backend, database, WebSocket, Gemini, ElevenLabs, VAD, transport, clinic, and booking-horizon status without exposing API keys. |
 
-> **Which LLM?** Google Gemini. Set `GEMINI_MODEL` in `backend/.env` to change the model.
+### Data and reliability
 
-> **Honesty note.** This code was written in a sandbox with **no internet access**, so the live voice path
-> (Pipecat + ElevenLabs + Gemini + WebRTC) has **not been executed**. Everything else was tested; see
-> [TEST_REPORT.md](TEST_REPORT.md) for exactly what was and was not verified. Run
-> [docs/LIVE_TEST_CHECKLIST.md](docs/LIVE_TEST_CHECKLIST.md) before you record your video.
+- SQLite-backed doctors, schedules, appointments, call sessions, transcripts, and activity.
+- Booking and cancellation run through server-side service logic and database transactions. A unique slot constraint protects against concurrent double-booking.
+- Appointment and availability changes are published over WebSocket so connected dashboards update without a page refresh.
+- Reconnect and resync support, duplicate-event protection, stale-data indication, loading states, and empty states.
+- API errors use structured responses; health and configuration-status endpoints support troubleshooting.
+
+## Technology
+
+| Area | Technology |
+|---|---|
+| Frontend | React 18, Vite, hand-written CSS |
+| Backend | Python, FastAPI, SQLite |
+| Voice orchestration and transport | Pipecat, SmallWebRTC |
+| Speech recognition and speech generation | ElevenLabs |
+| Language model and function calling | Google Gemini (`gemini-3.8-flash` by default) |
+| Voice activity detection | Silero |
+| Realtime dashboard updates | WebSocket |
 
 ## Quick start
 
-Prerequisites: Python 3.10+ (3.11/3.12 recommended), Node 18+, a Gemini API key
-([aistudio.google.com/apikey](https://aistudio.google.com/apikey)) and an ElevenLabs API key
-([elevenlabs.io](https://elevenlabs.io), the free tier includes STT and TTS credits).
+### Requirements
 
-```bash
-# 1. Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env                                   # then put your two keys in .env
-uvicorn app.main:app --port 8000                       # DB is created and seeded automatically
+- Python 3.10 or later (Python 3.11 or 3.12 recommended)
+- Node.js 18 or later and npm
+- A Google Gemini API key and an ElevenLabs API key for live voice calls
 
-# 2. Frontend (new terminal)
-cd frontend
-npm install
-npm run dev                                            # http://localhost:5173
+Keep both API keys in `backend/.env` only. Never put them in frontend environment variables or commit them.
+
+### Windows PowerShell
+
+From the project root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend\requirements.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
 ```
 
-Open http://localhost:5173, click **Try Call**, allow the microphone, and talk.
-API docs (Swagger): http://localhost:8000/docs · Health: http://localhost:8000/api/health
+Edit `backend\.env` and set `GEMINI_API_KEY` and `ELEVENLABS_API_KEY`. Then start the backend:
 
-First run downloads the Silero VAD model through Pipecat, so allow a minute.
+```powershell
+Set-Location backend
+..\.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload --port 8000
+```
 
-### Pinning
-`requirements.txt` uses ranges because Pipecat evolves quickly. After your first successful install run
-`pip freeze > requirements.lock` and commit it; `npm install` creates `package-lock.json`. Commit both.
+If the virtual environment is already activated from the project root, you can omit the activation command after changing into `backend`.
 
-## Environment variables
-`backend/.env` (see `backend/.env.example`)
+In a second terminal, from the project root:
+
+```powershell
+npm install --prefix frontend
+npm run dev --prefix frontend -- --host 127.0.0.1
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173), allow microphone access, and select **Try Call**. The first voice run may download local VAD model files.
+
+### macOS / Linux
+
+From the project root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env
+```
+
+Add the API keys to `backend/.env`, then run the backend from `backend/`:
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+In another terminal, from the project root:
+
+```bash
+npm install --prefix frontend
+npm run dev --prefix frontend
+```
+
+Open [http://localhost:5173](http://localhost:5173). The backend creates and seeds its SQLite database on startup.
+
+### Useful local URLs
+
+- Dashboard: [http://localhost:5173](http://localhost:5173)
+- API health: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+- API configuration status: [http://127.0.0.1:8000/api/config/status](http://127.0.0.1:8000/api/config/status)
+- Interactive API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+## Configuration
+
+Configure the backend in `backend/.env`; see [`backend/.env.example`](backend/.env.example) for the full list and defaults.
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` | **Secrets. Backend only.** The browser never sees them. |
-| `GEMINI_MODEL` | default `gemini-3.8-flash` |
-| `ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL` | voice and TTS model |
-| `CLINIC_NAME`, `CLINIC_TIMEZONE` | clinic identity; slots are clinic-local wall time (default `Asia/Kolkata`) |
-| `PHONE_REGION` | `IN` = 10-digit mobile numbers starting 6-9 |
-| `BOOKING_HORIZON_DAYS`, `MIN_LEAD_MINUTES` | how far ahead callers can book; minimum notice |
-| `DATABASE_PATH` | SQLite file (default `data/medivoice.db`) |
-| `CORS_ORIGINS` | allowed browser origins (also checked on the WebSocket) |
-| `SILENCE_PROMPT_SECS`, `SILENCE_HANGUP_SECS` | silence handling |
+| `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` | Server-only credentials required for voice calls. |
+| `GEMINI_MODEL` | Gemini model name; defaults to `gemini-3.8-flash`. |
+| `ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL` | Voice and text-to-speech model selection. |
+| `CLINIC_NAME`, `CLINIC_TIMEZONE` | Clinic label and timezone used to interpret schedule dates and times. |
+| `PHONE_REGION` | Phone validation region; `IN` expects Indian 10-digit mobile numbers. |
+| `BOOKING_HORIZON_DAYS`, `MIN_LEAD_MINUTES` | Maximum booking horizon and minimum advance notice. |
+| `DATABASE_PATH` | SQLite database path; defaults to `data/medivoice.db` relative to the backend working directory. |
+| `CORS_ORIGINS` | Allowed frontend origins; also checked for WebSocket connections. |
+| `SILENCE_PROMPT_SECS`, `SILENCE_HANGUP_SECS` | Call silence prompt and timeout behaviour. |
+| `LOG_LEVEL` | Backend log verbosity. |
 
-`frontend/.env.example` is optional: in development Vite proxies `/api` and `/ws` to the backend.
+In development, Vite proxies `/api` and `/ws` to `http://localhost:8000`. Set `VITE_BACKEND_URL` in the frontend environment if the backend is hosted elsewhere.
 
-## How it works (short)
-1. The browser captures the mic and opens a WebRTC connection to the backend (`POST /api/offer`).
-2. Pipecat pipeline: `mic → ElevenLabs STT → transcript tap → Silero VAD/aggregator → Gemini → ElevenLabs TTS → speaker`.
-3. Gemini calls tools (`check_doctor_availability`, `book_appointment`, `cancel_appointment` plus small helpers).
-   Tools run on the server against SQLite.
-4. Every change is committed in a database transaction, then published over WebSocket; the dashboard updates live.
+## How a voice call works
 
-Details: [ARCHITECTURE.md](ARCHITECTURE.md), [PIPELINE_EXPLANATION.md](PIPELINE_EXPLANATION.md).
+1. The browser requests microphone access, creates a WebRTC offer, and sends it to `POST /api/offer`.
+2. The backend creates a per-call session and starts the Pipecat pipeline:
+   `browser microphone → WebRTC input → ElevenLabs STT → transcript tap → Silero VAD/context → Gemini → ElevenLabs TTS → WebRTC output → browser speakers`.
+3. Gemini may call server-registered tools for availability, phone-number read-back/confirmation, appointment lookup, booking, and cancellation. The backend—not the model—executes those tools against SQLite.
+4. The backend publishes call-scoped transcript/speaking events and dashboard-wide appointment, availability, and call events over WebSocket.
+5. If the browser blocks audio autoplay, the call UI offers an **Enable audio** action. If voice services fail, inspect the backend terminal for the provider error.
 
-### The rules the *server* enforces (not just the prompt)
-* The caller is identified **only** by the phone number they say. `record_phone_number` returns a digit-by-digit
-  read-back; the number becomes *verified* only if the caller's next transcribed utterance is an affirmative yes.
-* `book_appointment` / `cancel_appointment` are two-phase: *propose → caller says yes → execute*. The server checks the
-  caller's actual transcript for the yes; the LLM cannot self-confirm. A confirmation for one appointment cannot cancel another.
-* A booking is "successful" only when a committed database row exists. DB errors return `DB_ERROR` and nothing is announced as booked.
-* `call_session_id` is injected server-side, never chosen by the model.
+Additional design detail is in [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`PIPELINE_EXPLANATION.md`](PIPELINE_EXPLANATION.md).
 
-## Example conversation
-> **Agent:** Hello, you've reached Northwell Clinic. How can I help?
-> **Caller:** I'd like to see a cardiologist tomorrow.
-> **Agent:** Of course. May I have your phone number?
-> **Caller:** nine eight seven six five four three two one zero
-> **Agent:** I heard 9 8 7 6 5, 4 3 2 1 0. Is that correct? **Caller:** Yes.
-> **Agent:** Dr. Anika Sharma has 9, 9:30 and 10 AM tomorrow. Dr. Rohan Mehta has 10 and 10:30. Which suits you?
-> **Caller:** Dr. Sharma at ten. **Agent:** Dr. Sharma, tomorrow at 10 AM, fee 1200 rupees, number 9 8 7 6 5, 4 3 2 1 0. Shall I book it?
-> **Caller:** Yes. **Agent:** Booked. Your reference is M V 4 8 2 9 1 5.
+## Confirmation and security boundaries
 
-## Project layout
+- A caller's spoken phone number is read back digit by digit. It is marked verified only after the next caller utterance clearly confirms it.
+- Booking and cancellation require a proposal followed by a clear caller confirmation. The server checks the caller's transcript before executing the action.
+- The server injects the call-session ID; it is not supplied by the LLM.
+- A booking is reported successful only after the database transaction commits.
+- API responses expose whether credentials are configured, never their values. WebSocket connections validate browser origins and keep transcripts/speaking events scoped to the live call.
+- **Spoken-number verification is not identity authentication.** Anyone who knows a number may be able to access its appointment details. A production deployment needs OTP or another ownership check.
+
+## API overview
+
+The dashboard and voice client use these principal endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | Backend, database, voice-readiness, and active-call status. |
+| `GET /api/config/status` | Non-secret service configuration status. |
+| `GET /api/state` | Initial dashboard snapshot and reconnect resync. |
+| `GET /api/doctors`, `GET /api/doctors/{doctor_id}` | Doctor directory and details. |
+| `GET /api/availability?date=YYYY-MM-DD` | Schedule and free/booked slots; optionally filter by doctor or speciality. |
+| `GET /api/appointments` | Appointment search and filters. |
+| `GET /api/appointments/export.csv` | CSV export. |
+| `GET /api/stats`, `GET /api/activity` | Dashboard metrics and activity feed. |
+| `GET /api/calls`, `GET /api/calls/{call_id}/transcript` | Call history and transcript. |
+| `POST /api/offer` | WebRTC signalling and voice-session startup. |
+| `POST /api/calls/{call_id}/end` | End a live call. |
+| `WS /ws/events` | Realtime dashboard and call events. |
+
+## Tests and verification
+
+Run the backend tests from the project root:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend\tests
 ```
-backend/app/
-  main.py  config.py  database.py  seed.py
-  routers/       api.py (REST) · voice.py (WebRTC offer / hang-up)
-  websocket/     router.py (dashboard socket) · bus.py (event bus)
-  services/      availability.py · booking.py (book/cancel, transactions) · dashboard.py
-  repositories/  doctors · slots · appointments · logs (calls, transcripts, activity)
-  tools/         definitions.py (LLM schemas) · handlers.py (server-side gating)
-  voice/         pipeline.py · taps.py · compat.py · prompts.py · session.py
-  utils/         phone.py · dates.py · confirm.py · clock.py
-  schemas/ middleware/
-backend/tests/   107 tests (see TEST_REPORT.md)
-frontend/src/
-  lib/           store · callMachine · voiceCall (WebRTC) · events (WS) · api · sounds   (all unit-tested logic)
-  components/    PhoneModal · Radial (waveform) · Charts · Sidebar · ui
-  pages/         Overview · VoiceAssistant · Doctors · Availability · Appointments · CallHistory · Activity · Settings
+
+Run frontend tests and the production build:
+
+```powershell
+npm test --prefix frontend
+npm run build --prefix frontend
 ```
 
-## Tests
-```bash
-cd backend && python -m pytest          # or: python -m unittest discover -s tests -t .
-cd frontend && npm test                 # node's built-in test runner, no extra deps
-```
+The automated suites cover backend API, services, tool confirmation, date/phone parsing, booking concurrency and rollback, and frontend state/format/call logic. Browser playback, provider credentials and quota, network/WebRTC quality, and a complete live Gemini/ElevenLabs conversation still require a real manual call. See [`TEST_REPORT.md`](TEST_REPORT.md) for the latest recorded test results and limitations, and [`docs/LIVE_TEST_CHECKLIST.md`](docs/LIVE_TEST_CHECKLIST.md) for a manual test sequence.
 
 ## Troubleshooting
-| Symptom | Fix |
+
+| Symptom | Check |
 |---|---|
-| "Voice is not configured" in the UI / 503 on `/api/offer` | Add both keys to `backend/.env`, restart uvicorn |
-| `ImportError` from `pipecat...` at call start | Pipecat moved a module: `pip install -U "pipecat-ai[elevenlabs,google,silero,webrtc]"`, then see `backend/app/voice/compat.py` (version shims live there) |
-| Mic prompt never appears | Use `http://localhost` or HTTPS; check browser site permissions |
-| Connected but no audio from the agent | Click once on the page (autoplay policy), check output device, check backend logs for ElevenLabs errors |
-| Call connects then ends in silence | Check Gemini quota / key; the logs show `pipeline error` lines |
-| Dashboard says "Connection lost" | Backend is down or CORS_ORIGINS does not include your frontend origin |
-| Corporate/VPN network blocks audio | WebRTC needs UDP; try another network or add a TURN server (`STUN` in `routers/voice.py`) |
+| Voice setup reports missing keys / `/api/offer` returns 503 | Set both backend keys in `backend/.env`, then restart Uvicorn. |
+| Port 8000 is occupied or health checks time out | Stop the existing backend process from its terminal with Ctrl+C, then restart Uvicorn from `backend/`. |
+| Microphone permission is unavailable | Use `localhost` or HTTPS and allow microphone access in browser site settings. |
+| Transcript appears but there is no agent audio | Check the tab/output device and backend ElevenLabs logs. If the UI shows **Enable audio**, click it to retry browser playback. |
+| Agent repeats itself or does not provide appointment slots | Check backend logs for Gemini errors and `tool=check_doctor_availability`; confirm the requested speciality/date exists in the sample clinic schedule. |
+| Call connects but the agent is silent | Check the Uvicorn terminal for Gemini, ElevenLabs, Pipecat, or `pipeline error` messages; verify model availability, credentials, and provider account limits. |
+| Dashboard says the connection is lost | Confirm Uvicorn is running and `CORS_ORIGINS` includes the dashboard origin. |
+| Call cannot connect on a restrictive network | WebRTC currently uses STUN; some networks require TURN. |
 
 ## Known limitations
-* **Identity is weak by design.** Anyone who knows a phone number can ask about its appointments. The assignment
-  specifies spoken-number-only identification; a real deployment needs OTP or caller-ID verification. This does not prove ownership of the number.
-* Dashboard has no login (single-clinic demo); don't expose it publicly as-is.
-* Phone parsing targets Indian 10-digit mobile numbers (`PHONE_REGION`).
-* Spoken-name matching is fuzzy but English-centric.
-* STUN only; strict NATs may need TURN.
-* Full-duplex echo: use headphones for the best demo, since laptop speakers can feed the agent's voice back into the mic.
-#   M e d i V o i c e - A I  
- 
+
+- The included clinic schedule and patient records are demonstration data, not a production clinic integration.
+- The dashboard has no login or role-based access control; do not expose it publicly as-is.
+- Caller identity is based on spoken phone number only and is not secure proof of ownership.
+- Phone validation is region-specific, and fuzzy doctor-name matching is English-centric.
+- WebRTC uses STUN only; restrictive NAT/firewall environments may require TURN.
+- Headphones are recommended to reduce the microphone picking up the agent's speaker audio.
+- The live voice experience depends on third-party API access, available models, credentials, quota, and network quality.
+
+## Project layout
+
+```text
+backend/
+  app/
+    routers/       REST API and WebRTC call routes
+    websocket/     event bus and dashboard socket
+    services/      availability, booking, cancellation, dashboard metrics
+    repositories/  SQLite queries for doctors, slots, appointments, calls, and logs
+    tools/         Gemini tool schemas and server-side handlers
+    voice/         Pipecat pipeline, prompts, compatibility helpers, transcript taps
+    utils/         phone, date, confirmation, and clock helpers
+  tests/           backend tests
+frontend/
+  src/
+    pages/         the eight dashboard pages
+    components/    app shell, charts, phone modal, waveform, and shared UI
+    context/       application and call state
+    lib/           API, WebSocket, WebRTC, reducers, formatters, and tests
+docs/
+  LIVE_TEST_CHECKLIST.md
+  screenshots/
+```
